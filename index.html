@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111111">
+  <title>我的日记</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    [hidden] { display: none !important; }
+
+    :root {
+      --fg: #111111;
+      --bg: #fafafa;
+      --muted: #999999;
+      --line: #e6e6e6;
+    }
+
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      min-height: 100dvh;
+    }
+
+    /* ---------- 顶部固定区 ---------- */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: #ffffff;
+      border-bottom: 1px solid var(--line);
+      padding: 14px 16px 10px;
+      padding-top: max(14px, env(safe-area-inset-top));
+    }
+    h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
+
+    #searchInput {
+      width: 100%;
+      margin-top: 10px;
+      padding: 9px 12px;
+      font-size: 15px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--fg);
+      outline: none;
+    }
+    #searchInput:focus { border-color: var(--fg); }
+
+    /* 非阻塞同步状态提示 */
+    #syncStatus {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      color: #7a5c00;
+      background: #fdf6e3;
+      border: 1px solid #f0e0b0;
+      border-radius: 6px;
+      padding: 6px 10px;
+    }
+    #retrySyncBtn {
+      flex-shrink: 0;
+      border: 1px solid #7a5c00;
+      background: transparent;
+      color: #7a5c00;
+      font-size: 12px;
+      border-radius: 4px;
+      padding: 2px 10px;
+      cursor: pointer;
+    }
+
+    /* ---------- 主内容区 ---------- */
+    main { flex: 1; padding: 16px; width: 100%; max-width: 640px; margin: 0 auto; }
+
+    h2 { font-size: 14px; color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+
+    .search-group { margin-bottom: 22px; }
+    .search-group h3 {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 600;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 4px;
+      margin-bottom: 8px;
+    }
+
+    .entry {
+      background: #ffffff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .entry-time { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .entry-text { font-size: 15px; white-space: pre-wrap; word-break: break-word; }
+    .entry-actions { margin-top: 8px; display: flex; gap: 12px; }
+    .entry-actions button {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 13px;
+      cursor: pointer;
+      padding: 0;
+    }
+    .entry-actions button:hover { color: var(--fg); }
+
+    mark {
+      background: var(--fg);
+      color: #ffffff;
+      border-radius: 2px;
+      padding: 0 2px;
+    }
+
+    .thumb {
+      display: block;
+      width: 100%;
+      max-width: 320px;
+      border-radius: 8px;
+      margin-top: 8px;
+      cursor: zoom-in;
+    }
+
+    .empty {
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+      padding: 48px 0;
+    }
+
+    /* ---------- 底部固定输入区 ---------- */
+    footer#composer {
+      position: sticky;
+      bottom: 0;
+      z-index: 10;
+      background: #ffffff;
+      border-top: 1px solid var(--line);
+      padding: 12px 16px;
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
+      width: 100%;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    #newTextarea, .edit-card textarea {
+      width: 100%;
+      font-size: 15px;
+      font-family: inherit;
+      line-height: 1.6;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      resize: vertical;
+      outline: none;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    #newTextarea:focus, .edit-card textarea:focus { border-color: var(--fg); }
+
+    .composer-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .muted { font-size: 12px; color: var(--muted); }
+
+    button.primary {
+      margin-left: auto;
+      background: var(--fg);
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      padding: 9px 22px;
+      cursor: pointer;
+    }
+    button.primary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    button.ghost, .file-label {
+      background: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--fg);
+      font-size: 13px;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    button.ghost:hover, .file-label:hover { border-color: var(--fg); }
+
+    #newPreview { margin-top: 0; margin-bottom: 8px; max-width: 260px; cursor: default; }
+
+    /* ---------- 编辑态卡片 ---------- */
+    .edit-card .edit-preview-img {
+      display: block;
+      width: 100%;
+      max-width: 260px;
+      border-radius: 8px;
+      margin-top: 8px;
+    }
+    .edit-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .edit-actions button.primary { margin-left: 0; }
+
+    /* ---------- 全屏图片 overlay ---------- */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.92);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: zoom-out;
+    }
+    #overlay img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部固定区：标题 + 搜索 + 同步状态 -->
+    <header>
+      <h1>我的日记</h1>
+      <input id="searchInput" type="search" placeholder="搜索所有日记" autocomplete="off">
+      <div id="syncStatus" hidden>
+        <span class="sync-text"></span>
+        <button id="retrySyncBtn" type="button">重试</button>
+      </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main>
+      <!-- 未搜索：今天列表 -->
+      <section id="todaySection">
+        <h2 id="todayDateLabel">今天</h2>
+        <div id="todayList"></div>
+        <p id="emptyToday" class="empty" hidden>今天还没有日记，写下第一句吧。</p>
+      </section>
+
+      <!-- 搜索结果 -->
+      <section id="searchSection" hidden>
+        <div id="searchResults"></div>
+        <p id="noResults" class="empty" hidden>没有找到相关日记</p>
+      </section>
+    </main>
+
+    <!-- 底部固定输入区（未搜索时可见） -->
+    <footer id="composer">
+      <img id="newPreview" class="thumb" alt="待上传图片预览" hidden>
+      <textarea id="newTextarea" rows="3" placeholder="写点什么……"></textarea>
+      <div class="composer-bar">
+        <button id="ideaBtn" type="button" class="ghost">Idea</button>
+        <label class="file-label" for="imageInput">添加图片</label>
+        <input type="file" id="imageInput" accept="image/*" hidden>
+        <button id="newRemoveBtn" type="button" class="ghost" hidden>移除</button>
+        <span id="uploadingTip" class="muted" hidden>上传中…</span>
+        <button id="saveBtn" type="button" class="primary" disabled>保存</button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- 全屏图片查看 -->
+  <div id="overlay" hidden>
+    <img id="overlayImg" alt="图片全屏预览">
+  </div>
+
+  <!-- 阿里云 OSS Browser.js SDK（唯一外部资源） -->
+  <script src="https://gosspublic.alicdn.com/aliyun-oss-sdk-6.20.0.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
