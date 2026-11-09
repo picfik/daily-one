@@ -126,13 +126,36 @@
       padding: 0 2px;
     }
 
+    .thumb-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .thumb-item { position: relative; }
     .thumb {
       display: block;
-      width: 100%;
-      max-width: 320px;
+      width: 96px;
+      height: 96px;
+      object-fit: cover;
       border-radius: 8px;
-      margin-top: 8px;
       cursor: zoom-in;
+    }
+    .thumb-remove {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 20px;
+      height: 20px;
+      line-height: 18px;
+      text-align: center;
+      border: none;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.6);
+      color: #ffffff;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 0;
     }
 
     .empty {
@@ -203,16 +226,9 @@
     }
     button.ghost:hover, .file-label:hover { border-color: var(--fg); }
 
-    #newPreview { margin-top: 0; margin-bottom: 8px; max-width: 260px; cursor: default; }
+    #newPreview { margin-top: 0; margin-bottom: 8px; }
 
     /* ---------- 编辑态卡片 ---------- */
-    .edit-card .edit-preview-img {
-      display: block;
-      width: 100%;
-      max-width: 260px;
-      border-radius: 8px;
-      margin-top: 8px;
-    }
     .edit-actions {
       display: flex;
       align-items: center;
@@ -270,13 +286,12 @@
 
     <!-- 底部固定输入区（未搜索时可见） -->
     <footer id="composer">
-      <img id="newPreview" class="thumb" alt="待上传图片预览" hidden>
+      <div id="newPreview" class="thumb-grid" hidden></div>
       <textarea id="newTextarea" rows="3" placeholder="写点什么……"></textarea>
       <div class="composer-bar">
         <button id="ideaBtn" type="button" class="ghost">Idea</button>
         <label class="file-label" for="imageInput">添加图片</label>
-        <input type="file" id="imageInput" accept="image/*" hidden>
-        <button id="newRemoveBtn" type="button" class="ghost" hidden>移除</button>
+        <input type="file" id="imageInput" accept="image/*" multiple hidden>
         <span id="uploadingTip" class="muted" hidden>上传中…</span>
         <button id="saveBtn" type="button" class="primary" disabled>保存</button>
       </div>

@@ -48,10 +48,10 @@ const IDEAS = [
 
 let entries = []        // 内存中的全部日记
 let keyword = ''        // 当前搜索关键词
-let pendingImage = null // 新条目待保存的图片 { key } | null
+let pendingImages = []  // 新条目待保存的图片列表 [{ key }]，数量无上限
 let uploading = false   // 图片是否上传中
 let editingId = null    // 正在编辑的条目 id
-let editImage = null    // 编辑中的图片状态 { key } | null
+let editImages = []     // 编辑中的图片列表 [{ key }]，数量无上限
 
 /* ---------------- DOM 引用 ---------------- */
 const $ = (id) => document.getElementById(id)
@@ -70,7 +70,6 @@ const noResults = $('noResults')
 const composer = $('composer')
 const newTextarea = $('newTextarea')
 const newPreview = $('newPreview')
-const newRemoveBtn = $('newRemoveBtn')
 const imageInput = $('imageInput')
 const saveBtn = $('saveBtn')
 const ideaBtn = $('ideaBtn')
@@ -79,6 +78,15 @@ const overlay = $('overlay')
 const overlayImg = $('overlayImg')
 
 /* ---------------- 工具函数 ---------------- */
+
+// 兼容旧数据：单图 imageKey 转为多图 imageKeys 数组
+function normalizeEntry(e) {
+  if (!Array.isArray(e.imageKeys)) {
+    e.imageKeys = e.imageKey ? [e.imageKey] : []
+  }
+  delete e.imageKey
+  return e
+}
 
 // 本地时区日期字符串 YYYY-MM-DD（不用 toISOString 截取，避免时区偏移）
 function localDateStr(d = new Date()) {
@@ -263,7 +271,9 @@ function createEntryCard(entry, kw) {
   renderHighlighted(text, entry.text, kw)
   card.appendChild(text)
 
-  if (entry.imageKey) card.appendChild(createThumb(entry.imageKey, 400))
+  if (entry.imageKeys.length) {
+    card.appendChild(createThumbGrid(entry.imageKeys, 400, false, null))
+  }
 
   if (!kw) {
     const actions = document.createElement('div')
@@ -310,16 +320,41 @@ function renderHighlighted(el, text, kw) {
   el.innerHTML = html
 }
 
-// 构造缩略图，加载失败静默移除，点击打开全屏原图
+// 构造单张缩略图，加载失败静默移除（连同外层容器），点击打开全屏原图
 function createThumb(imageKey, width) {
   const img = document.createElement('img')
   img.className = 'thumb'
   img.alt = '日记图片'
   img.loading = 'lazy'
   img.src = imageUrl(imageKey, width)
-  img.addEventListener('error', () => img.remove())
+  img.addEventListener('error', () => {
+    const wrap = img.closest('.thumb-item') || img
+    wrap.remove()
+  })
   img.addEventListener('click', () => openOverlay(imageKey))
   return img
+}
+
+// 构造缩略图网格（数量无上限）；allowRemove 为 true 时每张图带移除按钮（编辑态/输入态用）
+function createThumbGrid(keys, width, allowRemove, onRemove) {
+  const grid = document.createElement('div')
+  grid.className = 'thumb-grid'
+  keys.forEach((key) => {
+    const item = document.createElement('div')
+    item.className = 'thumb-item'
+    item.appendChild(createThumb(key, width))
+    if (allowRemove && onRemove) {
+      const rm = document.createElement('button')
+      rm.type = 'button'
+      rm.className = 'thumb-remove'
+      rm.title = '移除图片'
+      rm.textContent = '×'
+      rm.addEventListener('click', () => onRemove(key))
+      item.appendChild(rm)
+    }
+    grid.appendChild(item)
+  })
+  return grid
 }
 
 /* ---------------- 编辑交互 ---------------- */
@@ -329,7 +364,7 @@ function startEdit(id) {
   const entry = entries.find((e) => e.id === id)
   if (!entry) return
   editingId = id
-  editImage = entry.imageKey ? { key: entry.imageKey } : null
+  editImages = entry.imageKeys.map((key) => ({ key }))
   renderAll()
 }
 
@@ -343,67 +378,57 @@ function createEditCard(entry) {
   ta.value = entry.text
   card.appendChild(ta)
 
-  // 图片预览区（替换 / 移除后动态刷新）
+  // 图片预览区（多图网格，每张带移除按钮）
   const previewWrap = document.createElement('div')
-  previewWrap.className = 'edit-preview'
   card.appendChild(previewWrap)
 
   const refreshPreview = () => {
     previewWrap.textContent = ''
-    if (!editImage) return
-    const img = document.createElement('img')
-    img.className = 'edit-preview-img'
-    img.alt = '图片预览'
-    img.src = imageUrl(editImage.key, 300)
-    img.addEventListener('error', () => img.remove())
-    previewWrap.appendChild(img)
+    if (!editImages.length) return
+    previewWrap.appendChild(createThumbGrid(
+      editImages.map((im) => im.key), 300, true,
+      (key) => {
+        // 移除单张：从列表去掉该 key，旧图交给生命周期规则清理
+        editImages = editImages.filter((im) => im.key !== key)
+        refreshPreview()
+      }
+    ))
   }
   refreshPreview()
 
   const actions = document.createElement('div')
   actions.className = 'edit-actions'
 
-  // 替换图片：上传新图得到新 imageKey，旧图交给生命周期规则清理
+  // 添加图片：支持一次多选，数量无上限，旧图交给生命周期规则清理
   const fileInput = document.createElement('input')
   fileInput.type = 'file'
   fileInput.accept = 'image/*'
+  fileInput.multiple = true
   fileInput.hidden = true
-  const replaceLabel = document.createElement('label')
-  replaceLabel.className = 'file-label'
-  const replaceText = document.createElement('span')
-  replaceText.textContent = '替换图片'
-  replaceLabel.appendChild(replaceText)
-  replaceLabel.appendChild(fileInput)
+  const addLabel = document.createElement('label')
+  addLabel.className = 'file-label'
+  const addText = document.createElement('span')
+  addText.textContent = '添加图片'
+  addLabel.appendChild(addText)
+  addLabel.appendChild(fileInput)
   fileInput.addEventListener('change', async () => {
-    const file = fileInput.files && fileInput.files[0]
+    const files = Array.from(fileInput.files || [])
     fileInput.value = ''
-    if (!file) return
-    replaceText.textContent = '上传中…'
+    if (!files.length) return
+    addText.textContent = '上传中…'
     try {
-      const key = await uploadImage(file)
-      editImage = { key }
-      refreshPreview()
+      for (const file of files) {
+        const key = await uploadImage(file)
+        editImages.push({ key })
+        refreshPreview()
+      }
     } catch (e) {
       showSyncStatus('图片上传失败，请检查网络后重试')
     } finally {
-      replaceText.textContent = '替换图片'
+      addText.textContent = '添加图片'
     }
   })
-  actions.appendChild(replaceLabel)
-
-  // 移除图片：imageKey 置空，旧图交给生命周期规则清理
-  if (editImage) {
-    const removeImgBtn = document.createElement('button')
-    removeImgBtn.type = 'button'
-    removeImgBtn.className = 'ghost'
-    removeImgBtn.textContent = '移除图片'
-    removeImgBtn.addEventListener('click', () => {
-      editImage = null
-      refreshPreview()
-      actions.removeChild(removeImgBtn)
-    })
-    actions.appendChild(removeImgBtn)
-  }
+  actions.appendChild(addLabel)
 
   const saveEditBtn = document.createElement('button')
   saveEditBtn.type = 'button'
@@ -417,7 +442,7 @@ function createEditCard(entry) {
   cancelBtn.textContent = '取消'
   cancelBtn.addEventListener('click', () => {
     editingId = null
-    editImage = null
+    editImages = []
     renderAll()
   })
 
@@ -428,15 +453,15 @@ function createEditCard(entry) {
   return card
 }
 
-// 保存编辑：更新 text / imageKey / updatedAt，旧图不删除（生命周期兜底）
+// 保存编辑：更新 text / imageKeys / updatedAt，移除的图片不删除（生命周期兜底）
 async function saveEdit(entry, newText) {
   const text = (newText || '').trim()
   if (!text) return
   entry.text = text
-  entry.imageKey = editImage ? editImage.key : null
+  entry.imageKeys = editImages.map((im) => im.key)
   entry.updatedAt = new Date().toISOString()
   editingId = null
-  editImage = null
+  editImages = []
   renderAll()
   try {
     await syncEntries()
@@ -454,11 +479,11 @@ async function deleteEntry(id) {
   const entry = entries[idx]
   const snapshot = entries.slice()
 
-  // 1. 先删除关联图片；失败不阻断删除流程
+  // 1. 先删除关联的全部图片；失败不阻断删除流程
   let imageCleanFailed = false
-  if (entry.imageKey) {
+  for (const key of entry.imageKeys || []) {
     try {
-      await deleteObject(entry.imageKey)
+      await deleteObject(key)
     } catch (e) {
       imageCleanFailed = true
     }
@@ -488,32 +513,35 @@ function updateSaveBtn() {
   saveBtn.disabled = uploading || !newTextarea.value.trim()
 }
 
-// 刷新新条目图片预览
+// 刷新新条目图片预览（网格，每张带移除按钮）
 function refreshNewPreview() {
-  if (pendingImage) {
-    newPreview.hidden = false
-    newPreview.src = imageUrl(pendingImage.key, 300)
-    newRemoveBtn.hidden = false
-  } else {
-    newPreview.hidden = true
-    newPreview.removeAttribute('src')
-    newRemoveBtn.hidden = true
-  }
+  newPreview.textContent = ''
+  newPreview.hidden = pendingImages.length === 0
+  if (!pendingImages.length) return
+  newPreview.appendChild(createThumbGrid(
+    pendingImages.map((im) => im.key), 300, true,
+    (key) => {
+      pendingImages = pendingImages.filter((im) => im.key !== key)
+      refreshNewPreview()
+    }
+  ))
 }
 
-// 选择图片后立即上传 OSS
+// 选择图片后立即上传 OSS（支持一次多选，数量无上限）
 imageInput.addEventListener('change', async () => {
-  const file = imageInput.files && imageInput.files[0]
+  const files = Array.from(imageInput.files || [])
   imageInput.value = ''
-  if (!file || uploading) return
+  if (!files.length || uploading) return
 
   uploading = true
   uploadingTip.hidden = false
   updateSaveBtn()
   try {
-    const key = await uploadImage(file)
-    pendingImage = { key }
-    refreshNewPreview()
+    for (const file of files) {
+      const key = await uploadImage(file)
+      pendingImages.push({ key })
+      refreshNewPreview()
+    }
   } catch (e) {
     showSyncStatus('图片上传失败，请检查网络后重试')
   } finally {
@@ -521,12 +549,6 @@ imageInput.addEventListener('change', async () => {
     uploadingTip.hidden = true
     updateSaveBtn()
   }
-})
-
-// 移除待上传图片
-newRemoveBtn.addEventListener('click', () => {
-  pendingImage = null
-  refreshNewPreview()
 })
 
 // 保存新条目
@@ -539,14 +561,14 @@ async function saveNewEntry() {
     id: uuid(),
     date: localDateStr(),
     text,
-    imageKey: pendingImage ? pendingImage.key : null,
+    imageKeys: pendingImages.map((im) => im.key),
     createdAt: now,
     updatedAt: now
   })
 
   // 清空输入区
   newTextarea.value = ''
-  pendingImage = null
+  pendingImages = []
   refreshNewPreview()
   updateSaveBtn()
 
@@ -612,7 +634,7 @@ async function init() {
 
   // OSS 优先
   try {
-    entries = await loadEntries()
+    entries = (await loadEntries()).map(normalizeEntry)
     localStorage.setItem(CACHE_KEY, JSON.stringify(entries))
     loaded = true
   } catch (e) {
@@ -623,7 +645,7 @@ async function init() {
   if (!loaded) {
     try {
       const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]')
-      entries = Array.isArray(cached) ? cached : []
+      entries = (Array.isArray(cached) ? cached : []).map(normalizeEntry)
     } catch (e) {
       entries = [] // 缓存解析失败视为空数组，不白屏
     }
