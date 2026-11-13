@@ -53,6 +53,8 @@ let uploading = false   // 图片是否上传中
 let editingId = null    // 正在编辑的条目 id
 let editImages = []     // 编辑中的图片列表 [{ key }]，数量无上限
 let initialized = false // 首次 OSS 读取或离线回退完成后才允许保存
+let remoteReady = false // 只有确认 OSS 数据后才允许修改或同步
+let loading = false
 
 /* ---------------- DOM 引用 ---------------- */
 const $ = (id) => document.getElementById(id)
@@ -182,20 +184,24 @@ async function loadEntries() {
   })
   const text = await ossContentToText(result.content)
   const data = JSON.parse(text)
-  return Array.isArray(data) ? data : []
+  if (!Array.isArray(data)) throw new Error('OSS 日记数据格式无效')
+  return data
 }
 
 // 将内存中完整数组上传覆盖 entries.json，成功后刷新缓存
 async function syncEntries() {
+  if (!remoteReady) throw new Error('尚未从 OSS 加载数据，禁止覆盖云端文件')
   const json = JSON.stringify(entries)
   try {
     await ossClient.put(ENTRIES_KEY, new Blob([json], { type: 'application/json' }))
     localStorage.setItem(CACHE_KEY, json)
     clearSyncStatus()
+    retrySyncBtn.hidden = true
   } catch (e) {
     // 上传失败：数据暂存本地，不阻塞用户继续操作
     localStorage.setItem(CACHE_KEY, json)
     showSyncStatus('同步失败，数据已暂存本地，下次联网后会重试')
+    retrySyncBtn.hidden = false
     throw e
   }
 }
@@ -278,7 +284,7 @@ function createEntryCard(entry, kw) {
     card.appendChild(createThumbGrid(entry.imageKeys, 400, false, null))
   }
 
-  if (!kw) {
+  if (!kw && remoteReady) {
     const actions = document.createElement('div')
     actions.className = 'entry-actions'
 
@@ -458,6 +464,7 @@ function createEditCard(entry) {
 
 // 保存编辑：更新 text / imageKeys / updatedAt，移除的图片不删除（生命周期兜底）
 async function saveEdit(entry, newText) {
+  if (!remoteReady) return
   const text = (newText || '').trim()
   if (!text) return
   entry.text = text
@@ -475,6 +482,7 @@ async function saveEdit(entry, newText) {
 
 /* ---------------- 删除（级联删除图片） ---------------- */
 async function deleteEntry(id) {
+  if (!remoteReady) return
   const idx = entries.findIndex((e) => e.id === id)
   if (idx === -1) return
   if (!confirm('确定删除这条日记吗？删除后无法恢复。')) return
@@ -513,7 +521,7 @@ async function deleteEntry(id) {
 
 // 更新保存按钮可用状态：文本为空或上传中时禁用
 function updateSaveBtn() {
-  saveBtn.disabled = !initialized || uploading || !newTextarea.value.trim()
+  saveBtn.disabled = !initialized || !remoteReady || uploading || !newTextarea.value.trim()
 }
 
 // 刷新新条目图片预览（网格，每张带移除按钮）
@@ -534,6 +542,10 @@ function refreshNewPreview() {
 imageInput.addEventListener('change', async () => {
   const files = Array.from(imageInput.files || [])
   imageInput.value = ''
+  if (!remoteReady) {
+    showSyncStatus('尚未确认 OSS 数据，暂不能上传图片或修改日记')
+    return
+  }
   if (!files.length || uploading) return
 
   uploading = true
@@ -557,7 +569,7 @@ imageInput.addEventListener('change', async () => {
 // 保存新条目
 async function saveNewEntry() {
   const text = newTextarea.value.trim()
-  if (!initialized || !text || uploading) return
+  if (!initialized || !remoteReady || !text || uploading) return
 
   const now = new Date().toISOString()
   entries.push({
@@ -624,44 +636,72 @@ if ('serviceWorker' in navigator) {
 
 /* ---------------- 同步失败重试 ---------------- */
 retrySyncBtn.addEventListener('click', async () => {
-  try {
-    await syncEntries() // 成功后 clearSyncStatus 会隐藏提示
-  } catch (e) {
-    // 仍失败则保持提示
+  if (remoteReady) {
+    try {
+      await syncEntries()
+    } catch (e) {
+      // 同步失败时保留重试提示
+    }
+  } else {
+    await init()
   }
 })
 
 /* ---------------- 应用启动 ---------------- */
 async function init() {
-  let loaded = false
+  if (loading) return
+  loading = true
   retrySyncBtn.hidden = true
+  retrySyncBtn.disabled = true
+  if (!initialized) {
+    todaySection.hidden = true
+    searchSection.hidden = true
+    composer.hidden = true
+  }
   showSyncStatus('正在从 OSS 加载最新日记…')
 
-  // OSS 优先
   try {
-    entries = (await loadEntries()).map(normalizeEntry)
-    localStorage.setItem(CACHE_KEY, JSON.stringify(entries))
-    loaded = true
-    clearSyncStatus()
-  } catch (e) {
-    loaded = false
-  }
+    const remoteEntries = (await loadEntries()).map(normalizeEntry)
+    let cachedEntries = []
+    try {
+      const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]')
+      if (Array.isArray(cached)) cachedEntries = cached.map(normalizeEntry)
+    } catch (e) {
+      // 忽略损坏的本地缓存，OSS 数据仍然有效
+    }
 
-  // 降级：localStorage 缓存
-  if (!loaded) {
+    if (remoteEntries.length === 0 && cachedEntries.length > 0) {
+      entries = cachedEntries
+      remoteReady = false
+      showSyncStatus(`OSS 返回空数据，但本地缓存还有 ${cachedEntries.length} 条日记，已保护缓存并设为只读。`)
+      retrySyncBtn.hidden = false
+    } else {
+      entries = remoteEntries
+      remoteReady = true
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(entries))
+      } catch (e) {
+        // 本地缓存不可用不影响 OSS 数据读取与使用
+      }
+      clearSyncStatus()
+    }
+  } catch (e) {
+    remoteReady = false
     try {
       const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || '[]')
       entries = (Array.isArray(cached) ? cached : []).map(normalizeEntry)
     } catch (e) {
       entries = [] // 缓存解析失败视为空数组，不白屏
     }
-    showSyncStatus('当前离线，显示的是缓存数据，修改可能无法同步。')
+    showSyncStatus('无法从 OSS 读取数据，当前显示本地缓存且为只读。请检查网络或 OSS 配置后重试。')
     retrySyncBtn.hidden = false
   }
 
   initialized = true
   renderAll()
   updateSaveBtn()
+  retrySyncBtn.disabled = false
+  loading = false
 }
 
 init()
