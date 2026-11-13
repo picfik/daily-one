@@ -48,6 +48,8 @@ const IDEAS = [
 
 let entries = []        // 内存中的全部日记
 let keyword = ''        // 当前搜索关键词
+let selectedDate = localDateStr()
+let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
 let pendingImages = []  // 新条目待保存的图片列表 [{ key }]，数量无上限
 let uploading = false   // 图片是否上传中
 let editingId = null    // 正在编辑的条目 id
@@ -67,6 +69,11 @@ const todaySection = $('todaySection')
 const todayDateLabel = $('todayDateLabel')
 const todayList = $('todayList')
 const emptyToday = $('emptyToday')
+const calendarTitle = $('calendarTitle')
+const calendarGrid = $('calendarGrid')
+const calendarPrev = $('calendarPrev')
+const calendarNext = $('calendarNext')
+const calendarToday = $('calendarToday')
 const searchSection = $('searchSection')
 const searchResults = $('searchResults')
 const noResults = $('noResults')
@@ -218,22 +225,107 @@ function renderAll() {
   } else {
     searchSection.hidden = true
     todaySection.hidden = false
-    composer.hidden = false
+    composer.hidden = selectedDate !== localDateStr()
+    renderCalendar()
     renderToday()
   }
 }
 
-// 渲染"今天"列表，按 createdAt 倒序
+// 渲染月历；日期格显示当天日记数
+function renderCalendar() {
+  const year = calendarMonth.getFullYear()
+  const month = calendarMonth.getMonth()
+  calendarTitle.textContent = `${year}年${month + 1}月`
+  calendarGrid.textContent = ''
+
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六']
+  weekdays.forEach((weekday) => {
+    const label = document.createElement('span')
+    label.className = 'calendar-weekday'
+    label.textContent = weekday
+    calendarGrid.appendChild(label)
+  })
+
+  const counts = new Map()
+  entries.forEach((entry) => counts.set(entry.date, (counts.get(entry.date) || 0) + 1))
+
+  const firstDayOffset = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const previousMonthDays = new Date(year, month, 0).getDate()
+  const cellCount = Math.ceil((firstDayOffset + daysInMonth) / 7) * 7
+
+  for (let index = 0; index < cellCount; index++) {
+    let day
+    let date
+    let outside = false
+    if (index < firstDayOffset) {
+      day = previousMonthDays - firstDayOffset + index + 1
+      date = new Date(year, month - 1, day)
+      outside = true
+    } else if (index >= firstDayOffset + daysInMonth) {
+      day = index - firstDayOffset - daysInMonth + 1
+      date = new Date(year, month + 1, day)
+      outside = true
+    } else {
+      day = index - firstDayOffset + 1
+      date = new Date(year, month, day)
+    }
+
+    const dateKey = localDateStr(date)
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'calendar-day'
+    if (outside) button.classList.add('is-outside')
+    if (dateKey === selectedDate) button.classList.add('is-selected')
+    if (dateKey === localDateStr()) button.classList.add('is-today')
+    button.setAttribute('aria-pressed', String(dateKey === selectedDate))
+    const count = counts.get(dateKey) || 0
+    button.setAttribute('aria-label', `${dateKey}${count ? `，${count}篇日记` : '，无日记'}`)
+
+    const dayLabel = document.createElement('span')
+    dayLabel.textContent = String(day)
+    button.appendChild(dayLabel)
+
+    const countLabel = document.createElement('span')
+    countLabel.className = 'calendar-count'
+    countLabel.textContent = count ? String(count) : ''
+    button.appendChild(countLabel)
+
+    button.addEventListener('click', () => {
+      selectedDate = dateKey
+      calendarMonth = new Date(date.getFullYear(), date.getMonth(), 1)
+      renderAll()
+    })
+    calendarGrid.appendChild(button)
+  }
+}
+
+function changeCalendarMonth(offset) {
+  calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + offset, 1)
+  selectedDate = localDateStr(calendarMonth)
+  renderAll()
+}
+
+calendarPrev.addEventListener('click', () => changeCalendarMonth(-1))
+calendarNext.addEventListener('click', () => changeCalendarMonth(1))
+calendarToday.addEventListener('click', () => {
+  selectedDate = localDateStr()
+  const today = new Date()
+  calendarMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+  renderAll()
+})
+
+// 渲染所选日期列表，按 createdAt 倒序
 function renderToday() {
-  const today = localDateStr()
-  todayDateLabel.textContent = `今天 · ${today}`
+  todayDateLabel.textContent = selectedDate === localDateStr() ? `今天 · ${selectedDate}` : selectedDate
   const list = entries
-    .filter((e) => e.date === today)
+    .filter((e) => e.date === selectedDate)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 
   todayList.textContent = ''
   list.forEach((entry) => todayList.appendChild(createEntryCard(entry, null)))
   emptyToday.hidden = list.length > 0
+  emptyToday.textContent = `${selectedDate}还没有日记。`
 }
 
 // 渲染搜索结果：按 date 倒序分组，组内按 createdAt 倒序

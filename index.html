@@ -89,6 +89,74 @@
 
     h2 { font-size: 14px; color: var(--muted); font-weight: 600; margin-bottom: 10px; }
 
+    /* ---------- 月历导航 ---------- */
+    .calendar { margin-bottom: 24px; }
+    .calendar-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .calendar-title { font-size: 15px; font-weight: 700; }
+    .calendar-controls { display: flex; align-items: center; gap: 6px; }
+    .calendar-controls button {
+      min-width: 34px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--fg);
+      font: inherit;
+      cursor: pointer;
+    }
+    .calendar-controls button:hover { border-color: var(--fg); }
+    .calendar-controls .calendar-today { padding: 0 9px; font-size: 12px; }
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 4px;
+    }
+    .calendar-weekday {
+      height: 28px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+      line-height: 28px;
+    }
+    .calendar-day {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
+      width: 100%;
+      aspect-ratio: 1.15;
+      min-height: 38px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--fg);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .calendar-day:hover { background: #f0f0f0; }
+    .calendar-day.is-selected { background: var(--fg); color: #ffffff; }
+    .calendar-day.is-today:not(.is-selected) { border-color: var(--fg); }
+    .calendar-day.is-outside { color: #b8b8b8; }
+    .calendar-count {
+      min-height: 10px;
+      color: #52705c;
+      font-size: 9px;
+      line-height: 10px;
+    }
+    .calendar-day.is-selected .calendar-count { color: #d6e5d9; }
+    @media (max-width: 380px) {
+      .calendar-grid { gap: 2px; }
+      .calendar-day { min-height: 34px; font-size: 12px; }
+    }
+
     .search-group { margin-bottom: 22px; }
     .search-group h3 {
       font-size: 13px;
@@ -272,6 +340,17 @@
     <main>
       <!-- 未搜索：今天列表 -->
       <section id="todaySection">
+        <section class="calendar" aria-label="日记日历">
+          <div class="calendar-header">
+            <h2 id="calendarTitle" class="calendar-title">日记日历</h2>
+            <div class="calendar-controls">
+              <button id="calendarPrev" type="button" aria-label="上个月">‹</button>
+              <button id="calendarToday" class="calendar-today" type="button">今天</button>
+              <button id="calendarNext" type="button" aria-label="下个月">›</button>
+            </div>
+          </div>
+          <div id="calendarGrid" class="calendar-grid"></div>
+        </section>
         <h2 id="todayDateLabel">今天</h2>
         <div id="todayList"></div>
         <p id="emptyToday" class="empty" hidden>今天还没有日记，写下第一句吧。</p>
