@@ -52,6 +52,7 @@ let pendingImages = []  // 新条目待保存的图片列表 [{ key }]，数量�
 let uploading = false   // 图片是否上传中
 let editingId = null    // 正在编辑的条目 id
 let editImages = []     // 编辑中的图片列表 [{ key }]，数量无上限
+let initialized = false // 首次 OSS 读取或离线回退完成后才允许保存
 
 /* ---------------- DOM 引用 ---------------- */
 const $ = (id) => document.getElementById(id)
@@ -176,7 +177,9 @@ async function ossContentToText(content) {
 // 从 OSS 读取 entries.json，失败抛错由调用方降级
 async function loadEntries() {
   if (!ossClient) throw new Error('OSS 客户端不可用')
-  const result = await ossClient.get(ENTRIES_KEY)
+  const result = await ossClient.get(ENTRIES_KEY, {
+    headers: { 'Cache-Control': 'no-cache' }
+  })
   const text = await ossContentToText(result.content)
   const data = JSON.parse(text)
   return Array.isArray(data) ? data : []
@@ -510,7 +513,7 @@ async function deleteEntry(id) {
 
 // 更新保存按钮可用状态：文本为空或上传中时禁用
 function updateSaveBtn() {
-  saveBtn.disabled = uploading || !newTextarea.value.trim()
+  saveBtn.disabled = !initialized || uploading || !newTextarea.value.trim()
 }
 
 // 刷新新条目图片预览（网格，每张带移除按钮）
@@ -554,7 +557,7 @@ imageInput.addEventListener('change', async () => {
 // 保存新条目
 async function saveNewEntry() {
   const text = newTextarea.value.trim()
-  if (!text || uploading) return
+  if (!initialized || !text || uploading) return
 
   const now = new Date().toISOString()
   entries.push({
@@ -631,12 +634,15 @@ retrySyncBtn.addEventListener('click', async () => {
 /* ---------------- 应用启动 ---------------- */
 async function init() {
   let loaded = false
+  retrySyncBtn.hidden = true
+  showSyncStatus('正在从 OSS 加载最新日记…')
 
   // OSS 优先
   try {
     entries = (await loadEntries()).map(normalizeEntry)
     localStorage.setItem(CACHE_KEY, JSON.stringify(entries))
     loaded = true
+    clearSyncStatus()
   } catch (e) {
     loaded = false
   }
@@ -650,8 +656,10 @@ async function init() {
       entries = [] // 缓存解析失败视为空数组，不白屏
     }
     showSyncStatus('当前离线，显示的是缓存数据，修改可能无法同步。')
+    retrySyncBtn.hidden = false
   }
 
+  initialized = true
   renderAll()
   updateSaveBtn()
 }
